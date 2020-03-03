@@ -1,0 +1,194 @@
+_NUMERO_VALIDO(){
+	while [[ ${#number} != "4" ]] || [[ "$valido" != "0" ]]; do
+		valido="0"
+		read -p "Digite o número a ser adivinhado: " number
+		oldnumber="${number}"
+		number=$(echo "${number}" | tr -d [[:alpha:]] | tr -s "0-9")
+		[ ${#number} != "4" ]
+
+			for (( i = 0; i < $((${#number} - 1)); i++ )); do
+
+				for (( y = $(($i + 1)); y < ${#number}; y++ )); do
+					if [[ "${number:${i}:1}" == "${number:${y}:1}" ]]; then
+						valido="1"
+						break
+					fi
+				done
+			done
+	done
+}
+
+
+_PLAY_SINGLE(){
+	#Máquina escolhe um número de 4 digitos que não se repetem
+	CPUnumber=""
+	valido="0"
+	A="0"
+	B="0"
+	while [[ "${#CPUnumber}" != "4" ]] || [[ "$valido" != "0" ]]; do
+		CPUnumber=$(echo $RANDOM | head -c 4 ; echo)
+		valido="0"
+
+		for (( i = 0; i < $((${#CPUnumber} - 1)); i++ )); do
+
+			for (( y = $(($i + 1)); y < ${#CPUnumber}; y++ )); do
+				if [[ "${CPUnumber:${i}:1}" == "${CPUnumber:${y}:1}" ]]; then
+					valido="1"
+					break
+				fi
+			done
+		done
+	done
+	echo -e "\nA máquina já escolheu um número, agora tente adivinha-lo!"
+	
+	#Jogo inicia aqui
+	while : ; do
+	A="0"
+	B="0"
+	number=""
+	valido="0"
+			#Força inserção de número válido
+			_NUMERO_VALIDO
+
+		[[ "${number}" != "${oldnumber}" ]] && echo -e "\nO número enviado foi: ${number}"
+
+		#Verifica se o jogador venceu
+		if [[ "${number}" == "${CPUnumber}" ]]; then
+			echo -e "\nVocê acertou o número :) \nO número escolhido pela máquina foi: ${CPUnumber}"
+			read
+			break
+		else # Inicia-se o processo de dica
+
+			for (( i = 0; i < ${#number}; i++ )); do
+				for (( y = 0; y < ${#CPUnumber}; y++ )); do
+					if [[ "${number:${i}:1}" == "${CPUnumber:${y}:1}" ]] && [[ "${i}" == "${y}" ]]; then
+						A=$((${A} + 1 ))
+					elif [[ "${number:${i}:1}" == "${CPUnumber:${y}:1}" ]]; then
+						B=$((${B} + 1 ))
+					fi
+				done
+			done
+		#Mostrando a Dica
+		echo -e "\nA dica de aproximação é: ${A}A${B}B"	
+		fi
+	done
+}
+
+_HOST(){
+	valido="0"
+	#Escolhe um número
+	_NUMERO_VALIDO
+
+	echo -e "\nO número escolhido foi: ${number}"
+
+	#Espera conexão do outro player
+	echo -e "\nEsperando Jogador...\n"
+	c=$(nc -lp $1)
+	ip=$(echo $c | cut -d' ' -f 1)
+	port=$(echo $(($(echo $c | cut -d' ' -f 2) + 1)))
+
+		#Jogo acontece aqui
+		while : ; do
+			echo -e "\nEsperando tentativa do participante...\n"
+			n=$(nc -lp $1)
+			echo "O outro participante digitou: $n"
+
+				#Verifica se outro player ganhou
+				if [[ "$n" == "$number" ]]; then
+					echo -e "\nO outro participante acertou o número!"
+					sleep 1
+					echo "Venceu" > /dev/tcp/${ip}/${port}
+					exit
+				fi
+
+			#Informa os valores de acerto ou aproximação	
+			read -p "A: " a
+			read -p "B: " b
+			echo "${a}A${b}B" > /dev/tcp/${ip}/${port}
+		done
+}
+
+_CLIENT() {
+	echo "$1 $2" > /dev/tcp/${1}/${2} || { echo -e "\nErro de conexão..."; exit;}
+	echo -e "\nConectado!\n"
+	while : ; do
+		valido="0"
+			#Força inserção de número válido
+			_NUMERO_VALIDO
+
+		[[ "${number}" != "${oldnumber}" ]] && echo -e "\nO número enviado foi: ${number}"
+
+		echo $number > /dev/tcp/${1}/${2}
+		n=$(nc -lp $(($2 + 1)))
+
+		# Verifica se ganhou
+			if [[ "$n" == "Venceu" ]]; then
+				echo -e "\nVocê acertou o número. Parabéns!"
+				exit
+			else
+				echo -e "\nO outro participante digitou: $n \n"
+				number=""
+			fi
+		
+	done
+}
+
+_MANUAL(){
+	less << END
+
+		Guess Number 
+
+	Esse jogo consiste em uma brincadeira de adivinhação. Ela ocorre com dois jogadores, o jogador A escolhe um número de 4 dígitos (0-9) que não se repetem e o jogador B tem que adivinhar. Após o jogador A escolher um número o jogador B tentará adivinhar. Caso o valor inserido por B tenha algum dígito certo, porém em posição errado será acrescentado um valor a variável B, já se tiver algum dígito certo na posição correta, será acrescido um valor a variáver A, dessa forma será passado dicas ao jogador B. A ideia é tentar acertar o número com a menor quantidade de tentativas.
+
+
+	Exemplo:
+
+- Jogador A escolhe o número 1603
+- Jogador B digita o número 1234
+- Jogador A retorna 1A1B
+- Jogador B digita o número 1452
+- Jogador A retorna 1A0B
+- Jogador B digita o número 1367
+- Jogador A retorna 1A2B
+- Jogador B digita o número 1603
+
+	Jogador B vence o jogo.
+
+END
+}
+
+_HELP(){
+	less << END
+	-h | --help 
+  Imprime esse menu de ajuda.
+
+	-m|--manual )
+  Imprime o manual de como jogar.
+
+	-p | --play 
+  Joga singleplayer.
+
+	-r | --host 
+  Hosteia jogo multiplayer.
+
+	-j | --join
+  Entra em uma sala multiplayer.
+
+	-e | --exit
+  Sai do jogo.
+
+END
+}
+
+_HEADER(){
+	clear
+	cat << END
+
+┌─┐┬ ┬┌─┐┌─┐┌─┐  ┌┐┌┬ ┬┌┬┐┌┐ ┌─┐┬─┐
+│ ┬│ │├┤ └─┐└─┐  ││││ ││││├┴┐├┤ ├┬┘
+└─┘└─┘└─┘└─┘└─┘  ┘└┘└─┘┴ ┴└─┘└─┘┴└─
+
+ -h ou --help para menu de ajuda
+
+END
+}
